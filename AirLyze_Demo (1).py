@@ -798,7 +798,7 @@ else:
 
 # --- ADD AT THE BOTTOM (or near your download‑page logic) ---
 
-elif page_sel == "Download Real BIDMC Data":
+elif page_sel = "Download Real BIDMC Data":
     st.header("Download Real BIDMC ECG / PPG / Respiration + SpO₂ Data")
     st.write("Downloads and extracts real physiological recordings from BIDMC (PhysioNet).")
 
