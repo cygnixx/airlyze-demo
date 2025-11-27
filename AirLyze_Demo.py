@@ -539,26 +539,8 @@ elif page_sel == "Upload Data":
             fig_br = px.line(df_user, x="timestamp", y="breathing_rate", labels={"timestamp":"Time","breathing_rate":"BR (brpm)"})
             st.plotly_chart(fig_br, use_container_width=True)
 
-    for fname, content in demo_files.items():
-        st.download_button(label=f"Download {fname}", data=content, file_name=fname, mime="text/csv")
-
-        # Safe parse and event generation
-        try:
-            df_demo = pd.read_csv(io.StringIO(content))
-            if "timestamp" in df_demo.columns:
-                df_demo["timestamp"] = pd.to_datetime(df_demo["timestamp"])
-            else:
-                continue
-            if "spo2" not in df_demo.columns:
-                continue
-            ev_demo = detect_desaturation_events(df_demo, threshold=92)
-            if ev_demo:
-                evdf_demo = pd.DataFrame(ev_demo)
-                ev_name = fname.replace(".csv", "_events.csv")
-                st.download_button(label=f"Download {ev_name}", data=evdf_demo.to_csv(index=False).encode("utf-8"), file_name=ev_name, mime="text/csv")
-        except Exception:
-            # don't raise; demo should not crash the app
-            continue
+    
+   
 
     # Synthetic patient files generator + zip download
     st.markdown("---")
