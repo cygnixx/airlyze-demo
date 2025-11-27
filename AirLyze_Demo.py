@@ -379,7 +379,7 @@ if page_sel == "Dashboard":
 # ============================================================
 
 elif page_sel == "Upload Data":
-    st.header("Upload Patient Data (clean_data.csv)")
+    st.header("Upload Patient Data")
     st.write("Your CSV must contain **timestamp** and **spo2** columns. Optional: breathing_rate.")
 
     uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
