@@ -1,4 +1,5 @@
 streamlit
+wfdb
 pandas
 numpy
 plotly
