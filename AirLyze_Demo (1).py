@@ -296,6 +296,58 @@ if page_sel == "Dashboard":
 elif page_sel == "Upload Data":
     # (Upload logic remains unchanged)
     pass
+elif page_sel == "Upload Data":
+    st.header("Upload per-user CSV / Download Demo Dataset")
+
+    # Existing file uploader
+    st.write("CSV must contain at least timestamp and spo2. breathing_rate optional.")
+    uploaded = st.file_uploader("Choose CSV", type=["csv"])
+    if uploaded is not None:
+        try:
+            dfu = pd.read_csv(uploaded)
+            if "timestamp" not in dfu.columns or "spo2" not in dfu.columns:
+                st.error("CSV requires 'timestamp' and 'spo2' columns.")
+            else:
+                dfu["timestamp"] = pd.to_datetime(dfu["timestamp"])
+                if "breathing_rate" not in dfu.columns:
+                    dfu["breathing_rate"] = np.nan
+                out_path = USER_DATA_DIR / f"{username}_uploaded.csv"
+                dfu.to_csv(out_path, index=False)
+                st.success(f"Saved uploaded data to {out_path}")
+                st.dataframe(dfu.head())
+        except Exception as e:
+            st.error("Failed to read CSV: " + str(e))
+
+    # -----------------------------
+    # Download all BIDMC CSV files
+    # -----------------------------
+    st.markdown("---")
+    st.subheader("Download All BIDMC Demo CSV Files")
+
+    import requests
+
+    bidmc_urls = []
+    base = "https://physionet.org/files/bidmc/1.0.0/bidmc_csv/"
+    for i in range(1, 54):
+        subj = f"{i:02d}"
+        bidmc_urls.append(base + f"bidmc_{subj}_Numerics.csv")
+        bidmc_urls.append(base + f"bidmc_{subj}_Signals.csv")
+        bidmc_urls.append(base + f"bidmc_{subj}_Breaths.csv")
+        bidmc_urls.append(base + f"bidmc_{subj}_Fix.txt")
+
+    if st.button("Download All 212 Files"):
+        progress_bar = st.progress(0)
+        for idx, url in enumerate(bidmc_urls):
+            fname = USER_DATA_DIR / url.split('/')[-1]
+            try:
+                r = requests.get(url)
+                r.raise_for_status()
+                with open(fname, "wb") as f:
+                    f.write(r.content)
+            except Exception as e:
+                st.warning(f"Failed to download {url.split('/')[-1]}: {e}")
+            progress_bar.progress((idx + 1) / len(bidmc_urls))
+        st.success(f"Downloaded all files to {USER_DATA_DIR}")
 
 # ---------------------------
 # Page: Account
