@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# In[ ]:
+
+
 # AirLyze Ultra Edition - Single File Streamlit App (Passwordless Login)
 # Features:
 #  - SQLite user store with username + role only
@@ -273,29 +276,130 @@ st.sidebar.write(f"**BMI:** {bmi}")
 # App navigation
 # ---------------------------
 
-page_options = ["Dashboard", "Upload Data", "Account"]
-if role=="admin":
-    page_options.append("Admin")
-page_options.extend(["Download Real BIDMC Data", "About"])
-
-page_sel = st.sidebar.radio("Navigate", page_options)
+page_sel = st.sidebar.radio("Navigate", ["Dashboard", "Upload Data", "Account", "Admin" if role=="admin" else "About"])
 
 # ---------------------------
 # Page: Dashboard
 # ---------------------------
 
 if page_sel == "Dashboard":
-    # (Dashboard logic remains unchanged)
-    # … [omitted for brevity, same as original] …
-    pass
+    st.header("Dashboard — Live & Simulated Data")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        use_uploaded = st.checkbox("Use uploaded data (if available)", value=False)
+    with col2:
+        simulate_duration = st.number_input("Simulation duration (minutes)", min_value=1, max_value=1440, value=180)
+    with col3:
+        sample_interval = st.selectbox("Sampling interval (s)", [5,10,15,30,60], index=3)
+
+    threshold = st.slider("SpO₂ event threshold", 80, 98, 92)
+    manual_hr = st.number_input("Manual Heart Rate (bpm)", min_value=30, max_value=200, value=75)
+
+    mode = st.radio("Mode", ["Static Simulation", "Live Streaming"], index=0)
+
+    user_file = USER_DATA_DIR / f"{username}_uploaded.csv"
+    df = None
+    if use_uploaded and user_file.exists():
+        try:
+            df = pd.read_csv(user_file, parse_dates=["timestamp"])
+            st.success("Loaded uploaded data.")
+        except Exception as e:
+            st.error("Failed to load uploaded data: " + str(e))
+
+    if df is None:
+        df = simulate_sensor_data(simulate_duration, sample_interval)
+
+    try:
+        if not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+    except Exception:
+        pass
+
+    events = detect_desaturation_events(df, threshold)
+
+    st.subheader("Latest Vitals")
+    latest = df.iloc[-1]
+    m1,m2,m3 = st.columns(3)
+    m1.metric("SpO₂", f"{latest['spo2']}%")
+    m2.metric("Heart Rate", f"{manual_hr} bpm")
+    m3.metric("Breathing Rate", f"{latest['breathing_rate']} brpm")
+
+    st.subheader("SpO₂ Trend")
+    fig = px.line(df, x="timestamp", y="spo2", labels={"timestamp":"Time","spo2":"SpO₂ (%)"})
+    fig.add_hline(y=threshold, line_dash="dot", annotation_text=f"Threshold {threshold}%")
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("Breathing Rate")
+    fig2 = px.line(df, x="timestamp", y="breathing_rate", labels={"timestamp":"Time","breathing_rate":"BR (brpm)"})
+    st.plotly_chart(fig2, use_container_width=True)
+
+    st.subheader("Detected Desaturation Events")
+    if events:
+        evdf = pd.DataFrame(events)
+        st.dataframe(evdf)
+        st.download_button("Download events CSV", data=evdf.to_csv(index=False).encode("utf-8"), file_name="desaturation_events.csv", mime="text/csv")
+    else:
+        st.info("No events detected.")
+
+    if mode == "Live Streaming":
+        st.markdown("---")
+        st.info("Live simulation: streaming data updates in real-time. Press Stop to halt.")
+        live_col1, live_col2 = st.columns([1,1])
+        running_key = f"live_running_{username}"
+        if running_key not in st.session_state:
+            st.session_state[running_key] = False
+        if st.button("Start Live", key="start_live"):
+            st.session_state[running_key] = True
+        if st.button("Stop Live", key="stop_live"):
+            st.session_state[running_key] = False
+        placeholder = st.empty()
+        stream_df = simulate_sensor_data(duration_minutes=10, freq_seconds=5, seed=None, desaturation_prob=0.01)
+        idx = 0
+        while st.session_state[running_key]:
+            if idx >= len(stream_df):
+                more = simulate_sensor_data(duration_minutes=5, freq_seconds=5, seed=None, desaturation_prob=0.01)
+                stream_df = pd.concat([stream_df, more], ignore_index=True)
+            window = stream_df.iloc[max(0, idx-100):idx+1].copy().reset_index(drop=True)
+            try:
+                window["timestamp"] = pd.to_datetime(window["timestamp"])
+            except:
+                pass
+            with placeholder.container():
+                st.write("Live window (most recent samples)")
+                st.dataframe(window.tail(10))
+                fig_live = px.line(window, x="timestamp", y="spo2", labels={"timestamp":"Time","spo2":"SpO₂ (%)"})
+                fig_live.add_hline(y=threshold, line_dash="dot")
+                st.plotly_chart(fig_live, use_container_width=True)
+            idx += 1
+            touch_session()
+            time.sleep(0.75)
+            if not st.session_state.get(running_key):
+                break
+        placeholder.empty()
 
 # ---------------------------
 # Page: Upload Data
 # ---------------------------
 
 elif page_sel == "Upload Data":
-    # (Upload logic remains unchanged)
-    pass
+    st.header("Upload per-user CSV")
+    st.write("CSV must contain at least timestamp and spo2. breathing_rate optional.")
+    uploaded = st.file_uploader("Choose CSV", type=["csv"])
+    if uploaded is not None:
+        try:
+            dfu = pd.read_csv(uploaded)
+            if "timestamp" not in dfu.columns or "spo2" not in dfu.columns:
+                st.error("CSV requires 'timestamp' and 'spo2' columns.")
+            else:
+                dfu["timestamp"] = pd.to_datetime(dfu["timestamp"])
+                if "breathing_rate" not in dfu.columns:
+                    dfu["breathing_rate"] = np.nan
+                out_path = USER_DATA_DIR / f"{username}_uploaded.csv"
+                dfu.to_csv(out_path, index=False)
+                st.success(f"Saved uploaded data to {out_path}")
+                st.dataframe(dfu.head())
+        except Exception as e:
+            st.error("Failed to read CSV: " + str(e))
 elif page_sel == "Upload Data":
     st.header("Upload per-user CSV / Download Demo Dataset")
 
@@ -354,30 +458,41 @@ elif page_sel == "Upload Data":
 # ---------------------------
 
 elif page_sel == "Account":
-    # (Account logic remains unchanged)
-    pass
+    st.header("Account Info")
+    st.write(f"Username: **{username}**")
+    st.write(f"Role: **{role}**")
+    st.write(f"Created: **{user_obj.get('created_at','-')}**")
 
 # ---------------------------
 # Page: Admin
 # ---------------------------
 
 elif page_sel == "Admin" and role == "admin":
-    # (Admin logic remains unchanged)
-    pass
-
-# ---------------------------
-# Page: Download Real BIDMC Data
-# ---------------------------
-
-elif page_sel == "Download Real BIDMC Data":
-    # (Download BIDMC logic as in corrected version)
-    pass
+    st.header("Admin Dashboard")
+    cur = _db.cursor()
+    cur.execute("SELECT username, role, created_at FROM users ORDER BY created_at DESC")
+    rows = cur.fetchall()
+    users_df = pd.DataFrame(rows, columns=["username","role","created_at"])
+    st.dataframe(users_df)
+    st.markdown("---")
+    st.subheader("Delete a user (and their data)")
+    del_user = st.text_input("Username to delete")
+    if st.button("Delete user"):
+        if del_user and del_user != username and get_user_db(del_user):
+            cur.execute("DELETE FROM users WHERE username = ?", (del_user,))
+            _db.commit()
+            f = USER_DATA_DIR / f"{del_user}_uploaded.csv"
+            if f.exists():
+                f.unlink()
+            st.success(f"Deleted {del_user} and their data (if present).")
+        else:
+            st.error("Invalid username or attempt to delete self.")
 
 # ---------------------------
 # Page: About
 # ---------------------------
 
-elif page_sel == "About":
+else:
     st.header("About AirLyze Demo")
     st.markdown("""
     **AirLyze** is an educational demonstration of respiratory monitoring and desaturation event detection.  
@@ -388,3 +503,6 @@ elif page_sel == "About":
 
     Built with Python, Streamlit, Pandas, NumPy, Plotly.
     """)
+
+
+upload
