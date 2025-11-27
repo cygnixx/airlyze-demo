@@ -352,66 +352,82 @@ if page_sel == "Download ECG+SpO2":
 # Page: Download Real BIDMC Data
 # ---------------------------
 
-if page_sel == "Download Real BIDMC Data":
-    st.header("Download Real BIDMC ECG + PPG + Respiration Data")
-    st.write("This downloads real physiological signals from PhysioNet (BIDMC dataset).")
+# --- ADD AT THE BOTTOM (or near your download‑page logic) ---
 
-    start_btn = st.button("Start Real Download")
-    if start_btn:
+elif page_sel == "Download Real BIDMC Data":
+    st.header("Download Real BIDMC ECG / PPG / Respiration + SpO₂ Data")
+    st.write("Downloads and extracts real physiological recordings from BIDMC (PhysioNet).")
+
+    download_btn = st.button("Start BIDMC Download")
+    if download_btn:
         import requests, zipfile
         from io import BytesIO
 
-        output_folder = "bidmc_data_csv"
-        os.makedirs(output_folder, exist_ok=True)
         base_url = "https://physionet.org/files/bidmc/1.0.0/"
         zip_url = base_url + "bidmc-1.0.0.zip"
+        out_folder = "bidmc_data"
+        os.makedirs(out_folder, exist_ok=True)
 
-        st.info("Downloading BIDMC dataset (ZIP)... this may take some time.")
-        r = requests.get(zip_url, stream=True)
-        r.raise_for_status()
-        with zipfile.ZipFile(BytesIO(r.content)) as z:
-            z.extractall(output_folder)
-        st.success("Extraction complete.")
+        st.info("Downloading BIDMC (~200 MB). This may take a while...")
+        resp = requests.get(zip_url, stream=True)
+        try:
+            resp.raise_for_status()
+        except Exception as e:
+            st.error(f"Download failed: {e}")
+            st.stop()
 
-        # Find numeric CSVs
-        files = [f for f in os.listdir(output_folder) if f.endswith("_Numerics.csv")]
-        st.write(f"Found {len(files)} numeric CSV files.")
+        with zipfile.ZipFile(BytesIO(resp.content)) as z:
+            z.extractall(out_folder)
+        st.success("Download & extraction complete.")
 
-        merged = []
-        progress_bar = st.progress(0)
-        placeholder = st.empty()
+        # Look for CSV "Numerics" (for SpO2/parameters) and "Signals" (for ECG/PPG/resp)
+        files = os.listdir(out_folder)
+        numerics = [f for f in files if f.endswith("_Numerics.csv")]
+        signals = [f for f in files if f.endswith("_Signals.csv")]
 
-        for i, f in enumerate(files, start=1):
-            placeholder.text(f"Processing {f} ({i}/{len(files)}) ...")
-            path = os.path.join(output_folder, f)
-            df = pd.read_csv(path)
-            if "SpO2" in df.columns:
-                df_sub = df[["SpO2"]].copy()
-            elif "spo2" in df.columns:
-                df_sub = df[["spo2"]].copy()
-            else:
-                placeholder.text(f"  → Skipping {f}: SpO₂ not found")
-                progress_bar.progress(i / len(files))
+        st.write(f"Found {len(numerics)} Numerics CSVs and {len(signals)} Signals CSVs.")
+
+        merged_frames = []
+        prog = st.progress(0)
+
+        total = len(numerics)
+        for i, fn in enumerate(numerics, start=1):
+            fn_path = os.path.join(out_folder, fn)
+            df_num = pd.read_csv(fn_path)
+            # Check for SpO2
+            if not ("SpO2" in df_num.columns or "spo2" in df_num.columns):
+                st.warning(f"No SpO₂ in {fn}, skipping record.")
+                prog.progress(i/total)
                 continue
 
-            # Optionally add ECG or respiratory columns if available
-            for col in ["ECG", "PPG", "Resp", "Respiration", "RespSignal"]:
-                if col in df.columns:
-                    df_sub[col] = df[col]
+            # Load matching signal file if exists
+            subj = fn.split("_")[1]  # e.g. "01" from bidmc_01_Numerics.csv
+            sig_fn = f"bidmc_{subj}_Signals.csv"
+            df_sig = None
+            if sig_fn in signals:
+                df_sig = pd.read_csv(os.path.join(out_folder, sig_fn))
 
-            subj = f.split("_")[1]
-            df_sub["subject_id"] = subj
-            merged.append(df_sub)
-            progress_bar.progress(i / len(files))
+            # Merge numeric + signal (on time/index) if signal exists
+            if df_sig is not None:
+                df = df_sig.copy()
+                # optionally downsample or align timestamps
+            else:
+                df = pd.DataFrame()
 
-        if merged:
-            full_df = pd.concat(merged, ignore_index=True)
-            out_csv = os.path.join(output_folder, "bidmc_real_merged.csv")
-            full_df.to_csv(out_csv, index=False)
-            st.success(f"Merged CSV saved: {out_csv}")
+            # Add numeric params (hr, spo2, rr, etc.) — bleeding at 1 Hz vs signal at 125 Hz
+            # Easiest: keep numeric independently
+            df_params = df_num.copy()
+            df_params["subject_id"] = subj
+            merged_frames.append(df_params)
+
+            prog.progress(i/total)
+
+        if merged_frames:
+            full = pd.concat(merged_frames, ignore_index=True)
+            out_csv = os.path.join(out_folder, "bidmc_real_merged.csv")
+            full.to_csv(out_csv, index=False)
+            st.success(f"Saved merged file: {out_csv}")
         else:
-            st.info("No SpO₂ data found in any files.")
-
-        placeholder.empty()
-        progress_bar.empty()
+            st.info("No records processed (no SpO₂ data found).")
+        prog.empty()
 
