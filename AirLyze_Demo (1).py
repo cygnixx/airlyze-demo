@@ -478,7 +478,7 @@ elif page_sel == "Download Synthetic Data":
 import io
 import zipfile
 
-elif page_sel == "Download Synthetic Data":
+    elif page_sel == "Download Synthetic Data":
     st.header("Download Synthetic Patient Data (All 20 Patients)")
     st.write("Each patient file contains SpO₂, breathing rate, timestamps, sleep flag, and detected desaturation events.")
 
