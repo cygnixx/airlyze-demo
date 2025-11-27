@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
-
-
 # AirLyze Ultra Edition - Single File Streamlit App (Passwordless Login)
 # Features:
 #  - SQLite user store with username + role only
@@ -29,6 +26,7 @@ import numpy as np
 import plotly.express as px
 import socket
 from typing import Optional, Dict, Any, Tuple
+import io
 
 # ---------------------------
 # Configuration
@@ -276,7 +274,12 @@ st.sidebar.write(f"**BMI:** {bmi}")
 # App navigation
 # ---------------------------
 
-page_sel = st.sidebar.radio("Navigate", ["Dashboard", "Upload Data", "Account", "Admin" if role=="admin" else "About"])
+page_options = ["Dashboard", "Upload Data", "Account"]
+if role=="admin":
+    page_options.append("Admin")
+page_options.append("About")
+
+page_sel = st.sidebar.radio("Navigate", page_options)
 
 # ---------------------------
 # Page: Dashboard
@@ -341,76 +344,98 @@ if page_sel == "Dashboard":
     else:
         st.info("No events detected.")
 
-    if mode == "Live Streaming":
-        st.markdown("---")
-        st.info("Live simulation: streaming data updates in real-time. Press Stop to halt.")
-        live_col1, live_col2 = st.columns([1,1])
-        running_key = f"live_running_{username}"
-        if running_key not in st.session_state:
-            st.session_state[running_key] = False
-        if st.button("Start Live", key="start_live"):
-            st.session_state[running_key] = True
-        if st.button("Stop Live", key="stop_live"):
-            st.session_state[running_key] = False
-        placeholder = st.empty()
-        stream_df = simulate_sensor_data(duration_minutes=10, freq_seconds=5, seed=None, desaturation_prob=0.01)
-        idx = 0
-        while st.session_state[running_key]:
-            if idx >= len(stream_df):
-                more = simulate_sensor_data(duration_minutes=5, freq_seconds=5, seed=None, desaturation_prob=0.01)
-                stream_df = pd.concat([stream_df, more], ignore_index=True)
-            window = stream_df.iloc[max(0, idx-100):idx+1].copy().reset_index(drop=True)
-            try:
-                window["timestamp"] = pd.to_datetime(window["timestamp"])
-            except:
-                pass
-            with placeholder.container():
-                st.write("Live window (most recent samples)")
-                st.dataframe(window.tail(10))
-                fig_live = px.line(window, x="timestamp", y="spo2", labels={"timestamp":"Time","spo2":"SpO₂ (%)"})
-                fig_live.add_hline(y=threshold, line_dash="dot")
-                st.plotly_chart(fig_live, use_container_width=True)
-            idx += 1
-            touch_session()
-            time.sleep(0.75)
-            if not st.session_state.get(running_key):
-                break
-        placeholder.empty()
-
 # ---------------------------
-# Page: Upload Data
+# Page: Upload Data + Demo Download
 # ---------------------------
 
-# ---------------------------
-# Sidebar: Download BIDMC Demo Data
-# ---------------------------
-st.sidebar.markdown("---")
-st.sidebar.subheader("Download Demo CSV Files")
-import requests
+elif page_sel == "Upload Data":
+    # The combined upload/demo download code from previous snippet
+    st.header("Upload per-user CSV / Download Demo Dataset")
 
-bidmc_urls = []
-base = "https://physionet.org/files/bidmc/1.0.0/bidmc_csv/"
-for i in range(1, 54):
-    subj = f"{i:02d}"
-    bidmc_urls.append(base + f"bidmc_{subj}_Numerics.csv")
-    bidmc_urls.append(base + f"bidmc_{subj}_Signals.csv")
-    bidmc_urls.append(base + f"bidmc_{subj}_Breaths.csv")
-    bidmc_urls.append(base + f"bidmc_{subj}_Fix.txt")
-
-if st.sidebar.button("Download All 212 Files"):
-    progress_bar = st.sidebar.progress(0)
-    for idx, url in enumerate(bidmc_urls):
-        fname = USER_DATA_DIR / url.split('/')[-1]
+    # --- Upload user CSV ---
+    st.write("CSV must contain at least timestamp and spo2. breathing_rate optional.")
+    uploaded = st.file_uploader("Choose CSV", type=["csv"])
+    df_user = None
+    if uploaded is not None:
         try:
-            r = requests.get(url)
-            r.raise_for_status()
-            with open(fname, "wb") as f:
-                f.write(r.content)
-        except Exception as e:
-            st.sidebar.warning(f"Failed: {url.split('/')[-1]} ({e})")
-        progress_bar.progress((idx + 1) / len(bidmc_urls))
-    st.sidebar.success(f"Downloaded all files to {USER_DATA_DIR}")
+            df_user = pd.read_csv(uploaded)
+            if "timestamp" not in df_user.columns or "spo2" not in df_user.columns:
+                st.error("CSV requires 'timestamp' and 'spo2' columns.")
+            else:
+                df_user["timestamp"] = pd.to_datetime(df_user["timestamp"])
+                if "breathing_rate" not in df_user.columns:
+                    df_user["breathing_rate"] = np.nan
+                out_path = USER_DATA_DIR / f"{username}_uploaded.csv"
+                df_user.to_csv(out_path, index=False)
+                st.success(f"Saved uploaded data to {out_path}")
+                st.dataframe(df_user.head())
 
+                # Detect events
+                events_user = detect_desaturation_events(df_user, threshold=92)
+                if events_user:
+                    st.subheader("Detected Desaturation Events")
+                    evdf = pd.DataFrame(events_user)
+                    st.dataframe(evdf)
+                    st.download_button(
+                        "Download Your Events CSV",
+                        data=evdf.to_csv(index=False).encode("utf-8"),
+                        file_name="desaturation_events.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.info("No events detected in your uploaded file.")
+
+        except Exception as e:
+            st.error("Failed to read CSV: " + str(e))
+
+    # --- Demo CSVs ---
+    st.markdown("---")
+    st.subheader("Download Demo BIDMC CSV Files")
+
+    demo_files = {
+        "bidmc_demo_01.csv": """timestamp,spo2,breathing_rate
+2025-11-27 00:00:00,97,15
+2025-11-27 00:01:00,95,16
+2025-11-27 00:02:00,91,17
+2025-11-27 00:03:00,93,15
+2025-11-27 00:04:00,96,16
+""",
+        "bidmc_demo_02.csv": """timestamp,spo2,breathing_rate
+2025-11-27 01:00:00,98,14
+2025-11-27 01:01:00,94,15
+2025-11-27 01:02:00,92,16
+2025-11-27 01:03:00,95,14
+2025-11-27 01:04:00,97,15
+""",
+        "bidmc_demo_03.csv": """timestamp,spo2,breathing_rate
+2025-11-27 02:00:00,96,15
+2025-11-27 02:01:00,92,16
+2025-11-27 02:02:00,90,17
+2025-11-27 02:03:00,94,15
+2025-11-27 02:04:00,97,16
+"""
+    }
+
+    for fname, content in demo_files.items():
+        st.download_button(
+            label=f"Download {fname}",
+            data=content,
+            file_name=fname,
+            mime="text/csv"
+        )
+
+        # Also generate desaturation events for each demo file
+        df_demo = pd.read_csv(io.StringIO(content))
+        df_demo["timestamp"] = pd.to_datetime(df_demo["timestamp"])
+        events_demo = detect_desaturation_events(df_demo, threshold=92)
+        if events_demo:
+            evdf_demo = pd.DataFrame(events_demo)
+            st.download_button(
+                label=f"Download {fname.replace('.csv','')}_events.csv",
+                data=evdf_demo.to_csv(index=False).encode("utf-8"),
+                file_name=f"{fname.replace('.csv','')}_events.csv",
+                mime="text/csv"
+            )
 
 # ---------------------------
 # Page: Account
@@ -420,38 +445,25 @@ elif page_sel == "Account":
     st.header("Account Info")
     st.write(f"Username: **{username}**")
     st.write(f"Role: **{role}**")
-    st.write(f"Created: **{user_obj.get('created_at','-')}**")
+    st.write(f"Account created at: {user_obj.get('created_at','-')}")
 
 # ---------------------------
 # Page: Admin
 # ---------------------------
 
 elif page_sel == "Admin" and role == "admin":
-    st.header("Admin Dashboard")
+    st.header("Admin Panel")
+    st.subheader("Registered Users")
     cur = _db.cursor()
-    cur.execute("SELECT username, role, created_at FROM users ORDER BY created_at DESC")
-    rows = cur.fetchall()
-    users_df = pd.DataFrame(rows, columns=["username","role","created_at"])
-    st.dataframe(users_df)
-    st.markdown("---")
-    st.subheader("Delete a user (and their data)")
-    del_user = st.text_input("Username to delete")
-    if st.button("Delete user"):
-        if del_user and del_user != username and get_user_db(del_user):
-            cur.execute("DELETE FROM users WHERE username = ?", (del_user,))
-            _db.commit()
-            f = USER_DATA_DIR / f"{del_user}_uploaded.csv"
-            if f.exists():
-                f.unlink()
-            st.success(f"Deleted {del_user} and their data (if present).")
-        else:
-            st.error("Invalid username or attempt to delete self.")
+    cur.execute("SELECT username, role, created_at FROM users")
+    users = cur.fetchall()
+    st.dataframe(pd.DataFrame(users, columns=["Username","Role","Created At"]))
 
 # ---------------------------
 # Page: About
 # ---------------------------
 
-else:
+elif page_sel == "About":
     st.header("About AirLyze Demo")
     st.markdown("""
     **AirLyze** is an educational demonstration of respiratory monitoring and desaturation event detection.  
