@@ -475,6 +475,43 @@ elif page_sel == "Download Synthetic Data":
             file_name=f.name,
             mime="text/csv"
         )
+import io
+import zipfile
+
+elif page_sel == "Download Synthetic Data":
+    st.header("Download Synthetic Patient Data (All 20 Patients)")
+    st.write("Each patient file contains SpO₂, breathing rate, timestamps, sleep flag, and detected desaturation events.")
+
+    synthetic_dir = Path("synthetic_patient_data")
+    synthetic_dir.mkdir(exist_ok=True)
+
+    # Generate synthetic patient data function
+    def generate_synthetic_files():
+        for patient_id in range(1, 21):
+            csv_file = synthetic_dir / f"patient_{patient_id:02d}.csv"
+            events_file = synthetic_dir / f"patient_{patient_id:02d}_events.csv"
+            if csv_file.exists() and events_file.exists():
+                continue
+            df, events = simulate_patient_data(duration_minutes=180, freq_seconds=30, seed=patient_id)
+            df.to_csv(csv_file, index=False)
+            pd.DataFrame(events).to_csv(events_file, index=False)
+
+    generate_synthetic_files()
+
+    # Zip all CSVs
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zf:
+        for f in sorted(synthetic_dir.glob("*.csv")):
+            zf.write(f, arcname=f.name)
+    zip_buffer.seek(0)
+
+    st.download_button(
+        label="Download All 20 Synthetic Patient Files (ZIP)",
+        data=zip_buffer,
+        file_name="synthetic_patient_data.zip",
+        mime="application/zip"
+    )
+
 
 
 # ---------------------------
