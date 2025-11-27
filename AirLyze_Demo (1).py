@@ -385,7 +385,7 @@ if page_sel == "Dashboard":
 # Sidebar: Download BIDMC Demo Data
 # ---------------------------
 st.sidebar.markdown("---")
-st.sidebar.subheader("Download BIDMC Demo CSV Files")
+st.sidebar.subheader("Download Demo CSV Files")
 import requests
 
 bidmc_urls = []
