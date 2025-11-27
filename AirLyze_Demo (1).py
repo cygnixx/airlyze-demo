@@ -462,6 +462,3 @@ else:
 
     Built with Python, Streamlit, Pandas, NumPy, Plotly.
     """)
-
-
-upload
