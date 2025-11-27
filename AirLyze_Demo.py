@@ -378,158 +378,28 @@ if page_sel == "Dashboard":
         placeholder.empty()
 
 # ---------------------------
-# Page: Upload Data (Full Rewritten Section)
+# Page: Upload Data
 # ---------------------------
 
 elif page_sel == "Upload Data":
-    st.header("Upload Patient Data (clean_data.csv)")
-    st.write("Your CSV must contain **'timestamp'** and **'spo2'** columns. Optional: *breathing_rate*.")
-
-    # ------------------------------
-    # File Upload + Validation
-    # ------------------------------
-    uploaded_file = st.file_uploader(
-        "Drag and drop clean_data.csv here (Max 200 MB)",
-        type=["csv"]
-    )
-
-    df_user = None
-
-    if uploaded_file is not None:
-        # --- Validate file size ---
-        uploaded_file.seek(0, os.SEEK_END)
-        file_size = uploaded_file.tell()
-        uploaded_file.seek(0)
-        if file_size > 200 * 1024 * 1024:
-            st.error("❌ File too large — limit is 200MB.")
-            st.stop()
-
-        # --- Try Load ---
+    st.header("Upload per-user CSV")
+    st.write("CSV must contain at least timestamp and spo2. breathing_rate optional.")
+    uploaded = st.file_uploader("Choose CSV", type=["csv"])
+    if uploaded is not None:
         try:
-            df_user = pd.read_csv(uploaded_file)
+            dfu = pd.read_csv(uploaded)
+            if "timestamp" not in dfu.columns or "spo2" not in dfu.columns:
+                st.error("CSV requires 'timestamp' and 'spo2' columns.")
+            else:
+                dfu["timestamp"] = pd.to_datetime(dfu["timestamp"])
+                if "breathing_rate" not in dfu.columns:
+                    dfu["breathing_rate"] = np.nan
+                out_path = USER_DATA_DIR / f"{username}_uploaded.csv"
+                dfu.to_csv(out_path, index=False)
+                st.success(f"Saved uploaded data to {out_path}")
+                st.dataframe(dfu.head())
         except Exception as e:
-            st.error(f"❌ Could not read CSV: {e}")
-            st.stop()
-
-        # --- Required Columns ---
-        required = {"timestamp", "spo2"}
-        missing = required - set(df_user.columns)
-        if missing:
-            st.error("❌ Missing columns: " + ", ".join(missing))
-            st.stop()
-
-        # --- Fix timestamp ---
-        try:
-            df_user["timestamp"] = pd.to_datetime(df_user["timestamp"])
-        except:
-            st.error("❌ 'timestamp' column cannot be parsed as datetime.")
-            st.stop()
-
-        # --- Optional breathing rate ---
-        if "breathing_rate" not in df_user.columns:
-            df_user["breathing_rate"] = np.nan
-
-        # --- Save for user ---
-        user_file = USER_DATA_DIR / f"{username}_uploaded.csv"
-        df_user.to_csv(user_file, index=False)
-
-        st.success("✅ File successfully uploaded and saved.")
-        st.dataframe(df_user.head())
-
-        # ------------------------------
-        # Event Detection
-        # ------------------------------
-        st.subheader("Detected Desaturation Events")
-        events = detect_desaturation_events(df_user, threshold=92)
-
-        if events:
-            evdf = pd.DataFrame(events)
-            st.dataframe(evdf)
-
-            st.download_button(
-                label="Download Events CSV",
-                data=evdf.to_csv(index=False).encode("utf-8"),
-                file_name="desaturation_events.csv",
-                mime="text/csv"
-            )
-        else:
-            st.info("No desaturation events detected in this file.")
-
-        # ------------------------------
-        # Plotly Visualization
-        # ------------------------------
-        st.subheader("SpO₂ Timeline")
-        fig_spo2 = px.line(
-            df_user,
-            x="timestamp",
-            y="spo2",
-            title="SpO₂ Over Time",
-            labels={"timestamp": "Time", "spo2": "SpO₂ (%)"}
-        )
-        fig_spo2.add_hline(y=92, line_dash="dot", annotation_text="Threshold 92%")
-        st.plotly_chart(fig_spo2, use_container_width=True)
-
-        st.subheader("Breathing Rate Timeline")
-        if "breathing_rate" in df_user.columns:
-            fig_br = px.line(
-                df_user,
-                x="timestamp",
-                y="breathing_rate",
-                title="Breathing Rate",
-                labels={"timestamp": "Time", "breathing_rate": "BR (brpm)"}
-            )
-            st.plotly_chart(fig_br, use_container_width=True)
-
-    # ------------------------------
-    # Demo Download Section
-    # ------------------------------
-    st.markdown("---")
-    st.subheader("Download Demo CSV Files")
-
-    demo_files = {
-        "bidmc_demo_01.csv": """timestamp,spo2,breathing_rate
-2025-11-27 00:00:00,97,15
-2025-11-27 00:01:00,95,16
-2025-11-27 00:02:00,91,17
-2025-11-27 00:03:00,93,15
-2025-11-27 00:04:00,96,16
-""",
-        "bidmc_demo_02.csv": """timestamp,spo2,breathing_rate
-2025-11-27 01:00:00,98,14
-2025-11-27 01:01:00,94,15
-2025-11-27 01:02:00,92,16
-2025-11-27 01:03:00,95,14
-2025-11-27 01:04:00,97,15
-""",
-        "bidmc_demo_03.csv": """timestamp,spo2,breathing_rate
-2025-11-27 02:00:00,96,15
-2025-11-27 02:01:00,92,16
-2025-11-27 02:02:00,90,17
-2025-11-27 02:03:00,94,15
-2025-11-27 02:04:00,97,16
-"""
-    }
-
-    for fname, content in demo_files.items():
-        st.download_button(
-            label=f"Download {fname}",
-            data=content,
-            file_name=fname,
-            mime="text/csv"
-        )
-        
-        df_demo = pd.read_csv(io.StringIO(content))
-        df_demo["timestamp"] = pd.to_datetime(df_demo["timestamp"])
-        ev_demo = detect_desaturation_events(df_demo)
-
-        if ev_demo:
-            evdf_demo = pd.DataFrame(ev_demo)
-            st.download_button(
-                label=f"Download {fname.replace('.csv','')}_events.csv",
-                data=evdf_demo.to_csv(index=False).encode("utf-8"),
-                file_name=f"{fname.replace('.csv','')}_events.csv",
-                mime="text/csv"
-            )
+            st.error("Failed to read CSV: " + str(e))
 
 # ---------------------------
 # Page: Account
