@@ -347,3 +347,71 @@ if page_sel == "Download ECG+SpO2":
 # Dashboard, Upload Data, Account, Admin, About
 # (keep your previous code unchanged)
 # ---------------------------
+
+# ---------------------------
+# Page: Download Real BIDMC Data
+# ---------------------------
+
+if page_sel == "Download Real BIDMC Data":
+    st.header("Download Real BIDMC ECG + PPG + Respiration Data")
+    st.write("This downloads real physiological signals from PhysioNet (BIDMC dataset).")
+
+    start_btn = st.button("Start Real Download")
+    if start_btn:
+        import requests, zipfile
+        from io import BytesIO
+
+        output_folder = "bidmc_data_csv"
+        os.makedirs(output_folder, exist_ok=True)
+        base_url = "https://physionet.org/files/bidmc/1.0.0/"
+        zip_url = base_url + "bidmc-1.0.0.zip"
+
+        st.info("Downloading BIDMC dataset (ZIP)... this may take some time.")
+        r = requests.get(zip_url, stream=True)
+        r.raise_for_status()
+        with zipfile.ZipFile(BytesIO(r.content)) as z:
+            z.extractall(output_folder)
+        st.success("Extraction complete.")
+
+        # Find numeric CSVs
+        files = [f for f in os.listdir(output_folder) if f.endswith("_Numerics.csv")]
+        st.write(f"Found {len(files)} numeric CSV files.")
+
+        merged = []
+        progress_bar = st.progress(0)
+        placeholder = st.empty()
+
+        for i, f in enumerate(files, start=1):
+            placeholder.text(f"Processing {f} ({i}/{len(files)}) ...")
+            path = os.path.join(output_folder, f)
+            df = pd.read_csv(path)
+            if "SpO2" in df.columns:
+                df_sub = df[["SpO2"]].copy()
+            elif "spo2" in df.columns:
+                df_sub = df[["spo2"]].copy()
+            else:
+                placeholder.text(f"  → Skipping {f}: SpO₂ not found")
+                progress_bar.progress(i / len(files))
+                continue
+
+            # Optionally add ECG or respiratory columns if available
+            for col in ["ECG", "PPG", "Resp", "Respiration", "RespSignal"]:
+                if col in df.columns:
+                    df_sub[col] = df[col]
+
+            subj = f.split("_")[1]
+            df_sub["subject_id"] = subj
+            merged.append(df_sub)
+            progress_bar.progress(i / len(files))
+
+        if merged:
+            full_df = pd.concat(merged, ignore_index=True)
+            out_csv = os.path.join(output_folder, "bidmc_real_merged.csv")
+            full_df.to_csv(out_csv, index=False)
+            st.success(f"Merged CSV saved: {out_csv}")
+        else:
+            st.info("No SpO₂ data found in any files.")
+
+        placeholder.empty()
+        progress_bar.empty()
+
