@@ -279,24 +279,17 @@ page_sel = st.sidebar.radio(
 )
 
 # ---------------------------
-# Page: Dashboard
-# ---------------------------
-# ... your existing Dashboard code stays here unchanged ...
-# (omitted for brevity in this snippet, include everything you already had)
-
-# ---------------------------
-# Page: Download ECG + SpO2
+# Page: Download ECG + SpO2 (with simulated SpO2)
 # ---------------------------
 
 if page_sel == "Download ECG+SpO2":
-    st.header("Download ECG + SpO₂ Data from PhysioNet")
-    st.write("This will download all Apnea-ECG records containing SpO₂ and save CSVs locally.")
+    st.header("Download ECG + Simulated SpO₂ Data from PhysioNet")
 
     start_btn = st.button("Start Download")
     if start_btn:
         import wfdb
-        output_folder = "apnea_ecg_spo2_csv"
-        merged_csv_file = "apnea_ecg_spo2_merged.csv"
+        output_folder = "apnea_ecg_with_spo2_csv"
+        merged_csv_file = "apnea_ecg_with_spo2_merged.csv"
         os.makedirs(output_folder, exist_ok=True)
 
         db_name = "apnea-ecg"
@@ -307,21 +300,30 @@ if page_sel == "Download ECG+SpO2":
         placeholder = st.empty()
         progress_bar = st.progress(0)
 
+        def simulate_spo2(n_points: int, start_time: datetime):
+            times = [start_time + pd.Timedelta(seconds=i*1) for i in range(n_points)]
+            spo2 = 96 + 1.5 * np.sin(np.linspace(0, 8*np.pi, n_points)) + np.random.normal(0,0.6,n_points)
+            for i in range(n_points):
+                if np.random.rand() < 0.002:
+                    length = np.random.randint(2, min(12, n_points-i))
+                    depth = np.random.uniform(4,12)
+                    spo2[i:i+length] -= depth
+            spo2 = np.clip(spo2,70,100).round(1)
+            return spo2, times
+
         for i, record in enumerate(records, start=1):
             placeholder.text(f"Processing {record} ({i}/{len(records)}) ...")
             try:
                 wfdb.dl_record(record, db_name=db_name, pn_dir=db_name)
                 data = wfdb.rdrecord(record, pn_dir=db_name)
-                if "SpO2" not in data.sig_name:
-                    placeholder.text(f"Skipping {record}: No SpO₂ channel found.")
-                    progress_bar.progress(i/len(records))
-                    continue
-
                 df = pd.DataFrame(data.p_signal, columns=data.sig_name)
-                df["time"] = pd.date_range(
-                    start="2000-01-01", periods=len(df), freq=f"{int(1000/data.fs)}ms"
-                )
+
+                # Simulate SpO2
+                spo2, times = simulate_spo2(len(df), start_time=datetime(2000,1,1))
+                df["spo2"] = spo2
+                df["time"] = times
                 df["subject_id"] = record
+
                 outpath = os.path.join(output_folder, f"{record}.csv")
                 df.to_csv(outpath, index=False)
                 merged_frames.append(df)
@@ -335,19 +337,13 @@ if page_sel == "Download ECG+SpO2":
             full_df.to_csv(merged_csv_file, index=False)
             st.success(f"Merged CSV saved as: {merged_csv_file}")
         else:
-            st.info("No records with SpO₂ were found.")
+            st.info("No records processed.")
 
         placeholder.empty()
         progress_bar.empty()
 
 # ---------------------------
-# Page: Upload Data
+# Rest of your existing pages:
+# Dashboard, Upload Data, Account, Admin, About
+# (keep your previous code unchanged)
 # ---------------------------
-# ... your existing Upload Data code stays unchanged ...
-# ---------------------------
-# Page: Account
-# ...
-# Page: Admin
-# ...
-# Page: About
-# ...
