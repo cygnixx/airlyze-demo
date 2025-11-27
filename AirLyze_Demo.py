@@ -539,33 +539,6 @@ elif page_sel == "Upload Data":
             fig_br = px.line(df_user, x="timestamp", y="breathing_rate", labels={"timestamp":"Time","breathing_rate":"BR (brpm)"})
             st.plotly_chart(fig_br, use_container_width=True)
 
-    # Demo downloads (fixed, io used safely)
-    st.markdown("---")
-    st.subheader("Download Demo CSV Files")
-    demo_files = {
-        "bidmc_demo_01.csv": """timestamp,spo2,breathing_rate
-2025-11-27 00:00:00,97,15
-2025-11-27 00:01:00,95,16
-2025-11-27 00:02:00,91,17
-2025-11-27 00:03:00,93,15
-2025-11-27 00:04:00,96,16
-""",
-        "bidmc_demo_02.csv": """timestamp,spo2,breathing_rate
-2025-11-27 01:00:00,98,14
-2025-11-27 01:01:00,94,15
-2025-11-27 01:02:00,92,16
-2025-11-27 01:03:00,95,14
-2025-11-27 01:04:00,97,15
-""",
-        "bidmc_demo_03.csv": """timestamp,spo2,breathing_rate
-2025-11-27 02:00:00,96,15
-2025-11-27 02:01:00,92,16
-2025-11-27 02:02:00,90,17
-2025-11-27 02:03:00,94,15
-2025-11-27 02:04:00,97,16
-"""
-    }
-
     for fname, content in demo_files.items():
         st.download_button(label=f"Download {fname}", data=content, file_name=fname, mime="text/csv")
 
@@ -589,10 +562,10 @@ elif page_sel == "Upload Data":
 
     # Synthetic patient files generator + zip download
     st.markdown("---")
-    st.subheader("Generate Synthetic Patient Files")
+    st.subheader("Generate Demo Patient Files")
     synth_minutes = st.number_input("Minutes per file", min_value=1, max_value=1440, value=180)
     synth_interval = st.selectbox("Sampling interval (seconds)", [1,5,10,30,60], index=1)
-    if st.button("Generate & Download All 10 Synthetic Patients (ZIP)"):
+    if st.button("Generate & Download All 10 Demo Patients (ZIP)"):
         # create synthetic files in memory
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
