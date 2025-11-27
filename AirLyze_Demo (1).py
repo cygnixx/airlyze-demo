@@ -280,6 +280,11 @@ if role=="admin":
 page_options.append("About")
 
 page_sel = st.sidebar.radio("Navigate", page_options)
+page_options = ["Dashboard", "Upload Data", "Account"]
+if role=="admin":
+    page_options.append("Admin")
+page_options.extend(["Download Synthetic Data", "About"])
+
 
 # ---------------------------
 # Page: Dashboard
@@ -436,6 +441,41 @@ elif page_sel == "Upload Data":
                 file_name=f"{fname.replace('.csv','')}_events.csv",
                 mime="text/csv"
             )
+
+# ---------------------------
+# Page: Download Synthetic Data
+# ---------------------------
+
+elif page_sel == "Download Synthetic Data":
+    st.header("Download Synthetic Patient Data")
+    st.write("These are demo files with SpO₂, breathing rate, timestamps, sleep flag, and desaturation events.")
+
+    synthetic_dir = Path("synthetic_patient_data")
+    synthetic_dir.mkdir(exist_ok=True)  # Ensure folder exists
+
+    # Generate files on demand if they don't exist
+    def generate_synthetic_files():
+        for patient_id in range(1, 21):
+            csv_file = synthetic_dir / f"patient_{patient_id:02d}.csv"
+            events_file = synthetic_dir / f"patient_{patient_id:02d}_events.csv"
+            if csv_file.exists() and events_file.exists():
+                continue  # skip if already exists
+            df, events = simulate_patient_data(duration_minutes=180, freq_seconds=30, seed=patient_id)
+            df.to_csv(csv_file, index=False)
+            pd.DataFrame(events).to_csv(events_file, index=False)
+    
+    generate_synthetic_files()
+
+    # List all files
+    files = sorted(synthetic_dir.glob("*.csv"))
+    for f in files:
+        st.download_button(
+            label=f"Download {f.name}",
+            data=f.read_bytes(),
+            file_name=f.name,
+            mime="text/csv"
+        )
+
 
 # ---------------------------
 # Page: Account
