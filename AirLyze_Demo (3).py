@@ -313,66 +313,128 @@ page_sel = st.sidebar.radio("Navigate", ["Dashboard", "Upload Data", "Account", 
 if page_sel == "Dashboard":
     st.header("Dashboard — Live & Simulated Data")
 
-    col1,col2,col3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
     with col1:
         use_uploaded = st.checkbox("Use uploaded data (if available)", value=False)
     with col2:
-        simulate_duration = st.number_input("Simulation duration (minutes)",1,1440,180)
+        simulate_duration = st.number_input("Simulation duration (minutes)", 1, 1440, 180)
     with col3:
         sample_interval = st.selectbox("Sampling interval (s)", [5,10,15,30,60], index=3)
 
-    threshold = st.slider("SpO₂ event threshold",80,98,92)
-    manual_hr = st.number_input("Manual Heart Rate (bpm)",30,200,75)
+    threshold = st.slider("SpO₂ event threshold", 80, 98, 92)
+    manual_hr = st.number_input("Manual Heart Rate (bpm)", 30, 200, 75)
 
-    mode = st.radio("Mode",["Static Simulation","Live Streaming"], index=0)
+    mode = st.radio("Mode", ["Static Simulation", "Live Streaming"], index=0)
 
-    user_file = USER_DATA_DIR / f"{username}_uploaded.csv"
-    df = None
+    # ============================================================
+    # STATIC MODE
+    # ============================================================
+    if mode == "Static Simulation":
+        user_file = USER_DATA_DIR / f"{username}_uploaded.csv"
+        df = None
 
-    if use_uploaded and user_file.exists():
-        try:
-            df = pd.read_csv(user_file)
-            df["timestamp"] = pd.to_datetime(df["timestamp"])
-            st.success("Loaded uploaded data.")
-        except:
-            st.error("Failed to load uploaded file.")
+        if use_uploaded and user_file.exists():
+            try:
+                df = pd.read_csv(user_file)
+                df["timestamp"] = pd.to_datetime(df["timestamp"])
+                st.success("Loaded uploaded data.")
+            except:
+                st.error("Failed to load uploaded file.")
 
-    if df is None:
-        df = simulate_sensor_data(simulate_duration, sample_interval)
+        if df is None:
+            df = simulate_sensor_data(simulate_duration, sample_interval)
 
-    if not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
-        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        if not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
+            df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
 
-    events = detect_desaturation_events(df, threshold)
+        events = detect_desaturation_events(df, threshold)
 
-    st.subheader("Latest Vitals")
-    latest = df.iloc[-1]
-    c1,c2,c3 = st.columns(3)
-    c1.metric("SpO₂", f"{latest['spo2']}%")
-    c2.metric("Heart Rate", f"{manual_hr} bpm")
-    c3.metric("Breathing Rate", f"{latest['breathing_rate']} brpm")
+        st.subheader("Latest Vitals")
+        latest = df.iloc[-1]
+        c1, c2, c3 = st.columns(3)
+        c1.metric("SpO₂", f"{latest['spo2']}%")
+        c2.metric("Heart Rate", f"{manual_hr} bpm")
+        c3.metric("Breathing Rate", f"{latest['breathing_rate']} brpm")
 
-    st.subheader("SpO₂ Trend")
-    fig = px.line(df, x="timestamp", y="spo2")
-    fig.add_hline(y=threshold, line_dash="dot", annotation_text=f"{threshold}%")
-    st.plotly_chart(fig, use_container_width=True)
+        st.subheader("SpO₂ Trend")
+        fig = px.line(df, x="timestamp", y="spo2")
+        fig.add_hline(y=threshold, line_dash="dot", annotation_text=f"{threshold}%")
+        st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("Breathing Rate")
-    fig2 = px.line(df, x="timestamp", y="breathing_rate")
-    st.plotly_chart(fig2, use_container_width=True)
+        st.subheader("Breathing Rate")
+        fig2 = px.line(df, x="timestamp", y="breathing_rate")
+        st.plotly_chart(fig2, use_container_width=True)
 
-    st.subheader("Detected Desaturation Events")
-    if events:
-        evdf = pd.DataFrame(events)
-        st.dataframe(evdf)
-        st.download_button(
-            "Download events CSV",
-            evdf.to_csv(index=False).encode("utf-8"),
-            file_name="desaturation_events.csv",
-            mime="text/csv"
-        )
+        st.subheader("Detected Desaturation Events")
+        if events:
+            evdf = pd.DataFrame(events)
+            st.dataframe(evdf)
+            st.download_button(
+                "Download events CSV",
+                evdf.to_csv(index=False).encode("utf-8"),
+                file_name="desaturation_events.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("No events detected.")
+
+    # ============================================================
+    # LIVE STREAMING MODE (RESTORED)
+    # ============================================================
     else:
-        st.info("No events detected.")
+        st.warning("Live streaming is running… Leave this mode or press STOP to exit.")
+
+        # Initialize session buffer
+        if "live_df" not in st.session_state:
+            st.session_state.live_df = simulate_sensor_data(1, sample_interval).head(1)
+
+        placeholder_metrics = st.empty()
+        placeholder_chart_spo2 = st.empty()
+        placeholder_chart_br = st.empty()
+        placeholder_table = st.empty()
+
+        stop = st.button("STOP Live Stream")
+
+        while not stop:
+            time.sleep(sample_interval)
+
+            # Generate the next new measurement
+            new_row = simulate_sensor_data(1, sample_interval).iloc[-1]
+            new_row["timestamp"] = datetime.now()
+
+            # Append to session dataframe
+            st.session_state.live_df = pd.concat(
+                [st.session_state.live_df, pd.DataFrame([new_row])],
+                ignore_index=True
+            )
+
+            df_live = st.session_state.live_df.copy()
+            events_live = detect_desaturation_events(df_live, threshold)
+
+            latest = df_live.iloc[-1]
+            with placeholder_metrics.container():
+                c1, c2, c3 = st.columns(3)
+                c1.metric("SpO₂", f"{latest['spo2']}%")
+                c2.metric("Heart Rate", f"{manual_hr} bpm")
+                c3.metric("Breathing Rate", f"{latest['breathing_rate']} brpm")
+
+            # Live SpO2
+            fig_live_spo2 = px.line(df_live, x="timestamp", y="spo2")
+            fig_live_spo2.add_hline(y=threshold, line_dash="dot",
+                                    annotation_text=f"{threshold}%")
+            placeholder_chart_spo2.plotly_chart(fig_live_spo2, use_container_width=True)
+
+            # Live breathing rate
+            fig_live_br = px.line(df_live, x="timestamp", y="breathing_rate")
+            placeholder_chart_br.plotly_chart(fig_live_br, use_container_width=True)
+
+            # live table
+            placeholder_table.dataframe(df_live.tail(20))
+
+            stop = st.button("STOP Live Stream")
+
+        st.info("Live streaming stopped.")
+
 
 # ============================================================
 # UPLOAD DATA PAGE
