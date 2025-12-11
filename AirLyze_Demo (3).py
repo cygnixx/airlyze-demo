@@ -329,7 +329,16 @@ if page_sel == "Dashboard":
     # ============================================================
     # STATIC MODE
     # ============================================================
+   if mode == "Static Simulation":
+
+          # ============================================================
+    # STATIC OR LIVE STREAMING
+    # ============================================================
+
     if mode == "Static Simulation":
+        # -------------------------
+        # STATIC SIMULATION BLOCK
+        # -------------------------
         user_file = USER_DATA_DIR / f"{username}_uploaded.csv"
         df = None
 
@@ -344,8 +353,7 @@ if page_sel == "Dashboard":
         if df is None:
             df = simulate_sensor_data(simulate_duration, sample_interval)
 
-        if not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
-            df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
 
         events = detect_desaturation_events(df, threshold)
 
@@ -358,7 +366,7 @@ if page_sel == "Dashboard":
 
         st.subheader("SpO₂ Trend")
         fig = px.line(df, x="timestamp", y="spo2")
-        fig.add_hline(y=threshold, line_dash="dot", annotation_text=f"{threshold}%")
+        fig.add_hline(y=threshold, line_dash="dot")
         st.plotly_chart(fig, use_container_width=True)
 
         st.subheader("Breathing Rate")
@@ -367,70 +375,55 @@ if page_sel == "Dashboard":
 
         st.subheader("Detected Desaturation Events")
         if events:
-            evdf = pd.DataFrame(events)
-            st.dataframe(evdf)
-            st.download_button(
-                "Download events CSV",
-                evdf.to_csv(index=False).encode("utf-8"),
-                file_name="desaturation_events.csv",
-                mime="text/csv"
-            )
+            st.dataframe(pd.DataFrame(events))
         else:
             st.info("No events detected.")
 
-
-
-    # -------------------------------------------------------------------
-# LIVE SAMPLE GENERATOR  (ADD THIS NEAR YOUR SIMULATION FUNCTIONS)
-# -------------------------------------------------------------------
-def generate_live_sample():
-    now = datetime.now()
-
-    # Smooth SpO₂ variation + noise
-    spo2 = float(96 + 1.5 * np.sin(time.time() / 20) + np.random.normal(0, 0.3))
-    spo2 = round(np.clip(spo2, 70, 100), 1)
-
-    # Smooth breathing rate fluctuation + noise
-    br = float(15 + 1.2 * np.sin(time.time() / 35) + np.random.normal(0, 0.4))
-    br = round(np.clip(br, 6, 40), 1)
-
-    # Sleep flag detection
-    sleep_flag = 1 if (now.hour >= 22 or now.hour < 7) else 0
-
-    return {
-        "timestamp": now,
-        "spo2": spo2,
-        "breathing_rate": br,
-        "sleep_flag": sleep_flag
-    }
-
-
-# -------------------------------------------------------------------
-# FULL LIVE STREAMING BLOCK (REPLACE YOUR CURRENT ONE)
-# -------------------------------------------------------------------
+    # ============================================================
+    # LIVE STREAMING MODE — 1 SECOND UPDATES
+    # ============================================================
     else:
+
+        # -------------------------
+        # LIVE SAMPLE GENERATOR
+        # -------------------------
+        def generate_live_sample():
+            now = datetime.now()
+
+            spo2 = float(96 + 1.5 * np.sin(time.time() / 20) + np.random.normal(0, 0.3))
+            spo2 = round(np.clip(spo2, 70, 100), 1)
+
+            br = float(15 + 1.2 * np.sin(time.time() / 35) + np.random.normal(0, 0.4))
+            br = round(np.clip(br, 6, 40), 1)
+
+            sleep_flag = 1 if (now.hour >= 22 or now.hour < 7) else 0
+
+            return {
+                "timestamp": now,
+                "spo2": spo2,
+                "breathing_rate": br,
+                "sleep_flag": sleep_flag
+            }
+
         st.success("Live streaming is active. Updates every 1 second.")
 
-        # Initialize buffer only once
+        # Buffer
         if "live_df" not in st.session_state:
             st.session_state.live_df = pd.DataFrame(
                 columns=["timestamp", "spo2", "breathing_rate", "sleep_flag"]
             )
 
-        # Control flag for streaming
+        # Control flag
         if "streaming_active" not in st.session_state:
             st.session_state.streaming_active = True
 
-        # STOP BUTTON
         if st.button("STOP Live Stream"):
             st.session_state.streaming_active = False
             st.info("Live streaming stopped.")
             st.stop()
 
-        # Only update if still active
         if st.session_state.streaming_active:
 
-            # Create a new sample every second
             new_row = generate_live_sample()
             st.session_state.live_df = pd.concat(
                 [st.session_state.live_df, pd.DataFrame([new_row])],
@@ -440,47 +433,31 @@ def generate_live_sample():
             df_live = st.session_state.live_df.copy()
             events_live = detect_desaturation_events(df_live, threshold)
 
-            # ---------------------------
-            # LATEST VITALS
-            # ---------------------------
             st.subheader("Latest Vitals")
             latest = df_live.iloc[-1]
-
             c1, c2, c3 = st.columns(3)
             c1.metric("SpO₂", f"{latest['spo2']}%")
             c2.metric("Heart Rate", f"{manual_hr} bpm")
             c3.metric("Breathing Rate", f"{latest['breathing_rate']} brpm")
 
-            # ---------------------------
-            # LIVE CHARTS
-            # ---------------------------
             st.subheader("Live SpO₂ Trend")
-            fig1 = px.line(df_live, x="timestamp", y="spo2")
-            fig1.add_hline(y=threshold, line_dash="dot")
-            st.plotly_chart(fig1, use_container_width=True)
+            fig_live_spo2 = px.line(df_live, x="timestamp", y="spo2")
+            fig_live_spo2.add_hline(y=threshold, line_dash="dot")
+            st.plotly_chart(fig_live_spo2, use_container_width=True)
 
             st.subheader("Live Breathing Rate")
-            fig2 = px.line(df_live, x="timestamp", y="breathing_rate")
-            st.plotly_chart(fig2, use_container_width=True)
+            fig_live_br = px.line(df_live, x="timestamp", y="breathing_rate")
+            st.plotly_chart(fig_live_br, use_container_width=True)
 
-            # ---------------------------
-            # RECENT SAMPLES TABLE
-            # ---------------------------
             st.subheader("Recent Samples")
             st.dataframe(df_live.tail(20))
 
-            # ---------------------------
-            # DESATURATION EVENTS
-            # ---------------------------
             st.subheader("Detected Desaturation Events")
             if events_live:
                 st.dataframe(pd.DataFrame(events_live))
             else:
                 st.info("No events detected yet.")
 
-            # ---------------------------
-            # AUTO-REFRESH EVERY SECOND
-            # ---------------------------
             time.sleep(1)
             st.rerun()
 
