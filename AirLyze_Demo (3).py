@@ -409,7 +409,7 @@ if page_sel == "Dashboard":
             )
 
             # Auto-rerun after interval
-            st.experimental_rerun()
+            st.rerun()
 
         # -------------------------------
         # DISPLAY LIVE DATA + GRAPHS
