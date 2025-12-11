@@ -379,7 +379,7 @@ if page_sel == "Dashboard":
             st.info("No events detected.")
 
 
-    def generate_live_sample():
+      def generate_live_sample():
     now = datetime.now()
 
     spo2 = float(96 + 1.5 * np.sin(time.time() / 20) + np.random.normal(0, 0.3))
