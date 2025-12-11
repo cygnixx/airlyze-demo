@@ -397,7 +397,6 @@ if page_sel == "Dashboard":
         "sleep_flag": sleep_flag
     }
 
-
        # ============================================================
     # LIVE STREAMING MODE — TRUE 1-SECOND UPDATES
     # ============================================================
