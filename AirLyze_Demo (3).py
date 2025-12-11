@@ -379,15 +379,22 @@ if page_sel == "Dashboard":
             st.info("No events detected.")
 
 
-    def generate_live_sample():
+
+    # -------------------------------------------------------------------
+# LIVE SAMPLE GENERATOR  (ADD THIS NEAR YOUR SIMULATION FUNCTIONS)
+# -------------------------------------------------------------------
+def generate_live_sample():
     now = datetime.now()
 
+    # Smooth SpO₂ variation + noise
     spo2 = float(96 + 1.5 * np.sin(time.time() / 20) + np.random.normal(0, 0.3))
     spo2 = round(np.clip(spo2, 70, 100), 1)
 
+    # Smooth breathing rate fluctuation + noise
     br = float(15 + 1.2 * np.sin(time.time() / 35) + np.random.normal(0, 0.4))
     br = round(np.clip(br, 6, 40), 1)
 
+    # Sleep flag detection
     sleep_flag = 1 if (now.hour >= 22 or now.hour < 7) else 0
 
     return {
@@ -397,32 +404,33 @@ if page_sel == "Dashboard":
         "sleep_flag": sleep_flag
     }
 
-       # ============================================================
-    # LIVE STREAMING MODE — TRUE 1-SECOND UPDATES
-    # ============================================================
+
+# -------------------------------------------------------------------
+# FULL LIVE STREAMING BLOCK (REPLACE YOUR CURRENT ONE)
+# -------------------------------------------------------------------
     else:
         st.success("Live streaming is active. Updates every 1 second.")
 
-        # Initialize buffer
+        # Initialize buffer only once
         if "live_df" not in st.session_state:
             st.session_state.live_df = pd.DataFrame(
                 columns=["timestamp", "spo2", "breathing_rate", "sleep_flag"]
             )
 
-        # Start button persistent state
+        # Control flag for streaming
         if "streaming_active" not in st.session_state:
             st.session_state.streaming_active = True
 
-        # Stop button
+        # STOP BUTTON
         if st.button("STOP Live Stream"):
             st.session_state.streaming_active = False
             st.info("Live streaming stopped.")
             st.stop()
 
-        # Only run if still active
+        # Only update if still active
         if st.session_state.streaming_active:
 
-            # Add a new live data sample
+            # Create a new sample every second
             new_row = generate_live_sample()
             st.session_state.live_df = pd.concat(
                 [st.session_state.live_df, pd.DataFrame([new_row])],
@@ -432,7 +440,9 @@ if page_sel == "Dashboard":
             df_live = st.session_state.live_df.copy()
             events_live = detect_desaturation_events(df_live, threshold)
 
-            # VITALS
+            # ---------------------------
+            # LATEST VITALS
+            # ---------------------------
             st.subheader("Latest Vitals")
             latest = df_live.iloc[-1]
 
@@ -441,7 +451,9 @@ if page_sel == "Dashboard":
             c2.metric("Heart Rate", f"{manual_hr} bpm")
             c3.metric("Breathing Rate", f"{latest['breathing_rate']} brpm")
 
-            # PLOTS
+            # ---------------------------
+            # LIVE CHARTS
+            # ---------------------------
             st.subheader("Live SpO₂ Trend")
             fig1 = px.line(df_live, x="timestamp", y="spo2")
             fig1.add_hline(y=threshold, line_dash="dot")
@@ -451,20 +463,26 @@ if page_sel == "Dashboard":
             fig2 = px.line(df_live, x="timestamp", y="breathing_rate")
             st.plotly_chart(fig2, use_container_width=True)
 
+            # ---------------------------
+            # RECENT SAMPLES TABLE
+            # ---------------------------
             st.subheader("Recent Samples")
             st.dataframe(df_live.tail(20))
 
+            # ---------------------------
+            # DESATURATION EVENTS
+            # ---------------------------
             st.subheader("Detected Desaturation Events")
             if events_live:
                 st.dataframe(pd.DataFrame(events_live))
             else:
                 st.info("No events detected yet.")
 
-            # Re-run after 1 second
+            # ---------------------------
+            # AUTO-REFRESH EVERY SECOND
+            # ---------------------------
             time.sleep(1)
             st.rerun()
-
-
 
 # ============================================================
 # UPLOAD DATA PAGE
