@@ -377,29 +377,69 @@ if page_sel == "Dashboard":
                 break
         placeholder.empty()
 
-# ---------------------------
-# Page: Upload Data
-# ---------------------------
+# ============================================================
+# UPLOAD DATA PAGE
+# ============================================================
 
 elif page_sel == "Upload Data":
-    st.header("Upload per-user CSV")
-    st.write("CSV must contain at least timestamp and spo2. breathing_rate optional.")
-    uploaded = st.file_uploader("Choose CSV", type=["csv"])
-    if uploaded is not None:
+    st.header("Upload Patient Data")
+    st.write("Your CSV must contain **timestamp** and **spo2** columns. Optional: breathing_rate.")
+
+    uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+
+    if uploaded_file:
+        df_user = None
+
         try:
-            dfu = pd.read_csv(uploaded)
-            if "timestamp" not in dfu.columns or "spo2" not in dfu.columns:
-                st.error("CSV requires 'timestamp' and 'spo2' columns.")
-            else:
-                dfu["timestamp"] = pd.to_datetime(dfu["timestamp"])
-                if "breathing_rate" not in dfu.columns:
-                    dfu["breathing_rate"] = np.nan
-                out_path = USER_DATA_DIR / f"{username}_uploaded.csv"
-                dfu.to_csv(out_path, index=False)
-                st.success(f"Saved uploaded data to {out_path}")
-                st.dataframe(dfu.head())
+            df_user = pd.read_csv(uploaded_file)
         except Exception as e:
-            st.error("Failed to read CSV: " + str(e))
+            st.error(f"❌ Failed to load CSV: {e}")
+            st.stop()
+
+        required = {"timestamp","spo2"}
+        missing = required - set(df_user.columns)
+        if missing:
+            st.error("❌ Missing columns: " + ", ".join(missing))
+            st.stop()
+
+        try:
+            df_user["timestamp"] = pd.to_datetime(df_user["timestamp"])
+        except:
+            st.error("❌ Cannot parse timestamp column.")
+            st.stop()
+
+        if "breathing_rate" not in df_user.columns:
+            df_user["breathing_rate"] = np.nan
+
+        user_file = USER_DATA_DIR / f"{username}_uploaded.csv"
+        df_user.to_csv(user_file, index=False)
+
+        st.success("File uploaded successfully.")
+        st.dataframe(df_user.head())
+
+        st.subheader("Detected Desaturation Events")
+        events = detect_desaturation_events(df_user, threshold=92)
+
+        if events:
+            evdf = pd.DataFrame(events)
+            st.dataframe(evdf)
+            st.download_button(
+                "Download Events CSV",
+                evdf.to_csv(index=False).encode("utf-8"),
+                "desaturation_events.csv",
+                "text/csv"
+            )
+        else:
+            st.info("No detected events.")
+
+        st.subheader("SpO₂ Timeline")
+        fig = px.line(df_user, x="timestamp", y="spo2")
+        fig.add_hline(y=92, line_dash="dot")
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Breathing Rate Timeline")
+        fig2 = px.line(df_user, x="timestamp", y="breathing_rate")
+        st.plotly_chart(fig2, use_container_width=True)
 
 # ---------------------------
 # Page: Account
